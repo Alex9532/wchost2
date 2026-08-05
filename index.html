@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dock — static site host</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css" />
+  <!--
+    Plain blocking script, deliberately not type="module": it must run
+    before src/main.js so that on hosts without real header support (e.g.
+    GitHub Pages) it can register the COI service worker and reload the
+    page before WebContainer.boot() is attempted. See coi-bootstrap.js.
+  -->
+  <script src="coi-bootstrap.js"></script>
+
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">▣</span>
+        <span class="brand-name">Dock</span>
+        <span class="brand-sub">static site host</span>
+      </div>
+      <ol class="boot-ticker" id="boot-ticker">
+        <li data-step="boot">Boot container</li>
+        <li data-step="mount">Mount files</li>
+        <li data-step="install">Install deps</li>
+        <li data-step="serve">Serve</li>
+      </ol>
+      <div class="topbar-actions">
+        <span class="pid" id="pid-badge">no process</span>
+      </div>
+    </header>
+
+    <div class="workspace">
+
+      <aside class="sidebar">
+        <section class="panel upload-panel">
+          <h2>Files</h2>
+          <p class="hint">Drop a folder here, or use the buttons below. Files land in the container's <code>/</code> directory.</p>
+          <div class="dropzone" id="dropzone">
+            <span class="dz-icon">↓</span>
+            <span>Drag &amp; drop files or a folder</span>
+          </div>
+          <div class="upload-buttons">
+            <button class="btn" id="btn-upload-files">Upload files</button>
+            <button class="btn" id="btn-upload-folder">Upload folder</button>
+          </div>
+          <input type="file" id="input-files" multiple hidden />
+          <input type="file" id="input-folder" webkitdirectory directory multiple hidden />
+        </section>
+
+        <section class="panel tree-panel">
+          <div class="tree-head">
+            <h2>Container FS</h2>
+            <button class="btn-ghost" id="btn-refresh-tree" title="Refresh">⟳</button>
+          </div>
+          <div class="tree" id="file-tree">
+            <p class="hint muted">Booting…</p>
+          </div>
+        </section>
+
+        <section class="panel actions-panel">
+          <h2>Serve</h2>
+          <p class="hint">Runs <code>npm install</code> then starts a static server over whatever is uploaded, the same way GitHub Pages serves a repo's files as-is.</p>
+          <button class="btn btn-primary" id="btn-serve">Install &amp; start server</button>
+          <button class="btn" id="btn-stop-serve" disabled>Stop server</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="panel preview-panel">
+          <div class="preview-bar">
+            <span class="dot dot-preview"></span>
+            <span class="preview-label">Preview</span>
+            <span class="preview-url" id="preview-url">not running</span>
+            <div class="spacer"></div>
+            <button class="btn-ghost" id="btn-reload-preview" title="Reload">⟳</button>
+            <button class="btn-ghost" id="btn-open-preview" title="Open in new tab">↗</button>
+          </div>
+          <div class="preview-body">
+            <iframe id="preview-frame" title="Site preview"></iframe>
+            <div class="preview-empty" id="preview-empty">
+              <p>Nothing served yet.</p>
+              <p class="hint">Upload files, then click <strong>Install &amp; start server</strong> — or run your own command below.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel terminal-panel">
+          <div class="terminal-bar">
+            <span class="dot dot-term"></span>
+            <span>Terminal</span>
+            <span class="hint muted">jsh — a real shell inside the container</span>
+          </div>
+          <div class="terminal-body" id="terminal"></div>
+        </section>
+      </main>
+
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
