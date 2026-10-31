@@ -51,6 +51,41 @@ setup is needed locally.
   step for a framework (e.g. `npm run build` for a Vite/React app) before
   serving the `dist/` output, inspecting files, etc.
 
+### The three preview buttons
+
+- **⟳ Reload** — reloads the preview pane.
+- **↗ Open in new tab** — opens the site in its own browser tab.
+- **⤢ Full screen** — expands the preview pane over the whole window (✕ to leave).
+
+StackBlitz's own preview URL can't be opened in a separate tab by apps built
+on `@webcontainer/api` (it shows a "connect this tab to its project" screen
+that only works with StackBlitz's editor, and browsers partition its storage).
+So **↗** doesn't use that URL. Instead:
+
+1. The service worker serves `<this site>/preview/<id>/…` itself.
+2. For each request it asks the Dock tab (over a `BroadcastChannel`).
+3. The Dock tab asks a tiny Node relay running *inside the container*
+   (`src/container-bridge.cjs`) to request the file from the container's
+   server on `localhost`, and sends the bytes back.
+
+What that means in practice:
+
+- **Keep the Dock tab open.** The server lives inside it; close it and the
+  other tab shows "no open Dock tab answered".
+- It needs a service worker, so Dock must be served over **HTTPS or
+  `http://localhost`**. Locally, `npm run dev` or any static server on
+  localhost is fine. `file://` pages and plain-HTTP LAN addresses can't run
+  WebContainers at all. If ↗ can't work, Dock shows a notice saying why.
+- It works with any server running in the container, not just the default
+  one, because it proxies to whichever port was reported last.
+- Not supported in the new tab: WebSockets / live-reload, and links that
+  navigate to root-absolute paths (`<a href="/about">`). Root-absolute
+  *sub-resources* (`/style.css`, `/app.js`) do work.
+- **Trust what you preview.** The new tab shares an origin with Dock (and,
+  on GitHub Pages, with every other project site under your `github.io`
+  account). Its scripts can read that origin's `localStorage`. The embedded
+  preview pane doesn't have this issue because it lives on StackBlitz's origin.
+
 ### Hosting something with a build step
 
 If what you're uploading isn't plain static HTML/CSS/JS but a project that

@@ -2,6 +2,8 @@ import { WebContainer } from '@webcontainer/api';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import bridgeSource from './container-bridge.cjs?raw';
+import { createPreviewHost } from './preview-host.js';
 
 // ---------------------------------------------------------------------------
 // Constants / initial in-container filesystem
@@ -61,6 +63,11 @@ const previewUrlEl = $('#preview-url');
 const previewDot = $('.dot-preview');
 const btnReloadPreview = $('#btn-reload-preview');
 const btnOpenPreview = $('#btn-open-preview');
+const btnFullscreenPreview = $('#btn-fullscreen-preview');
+const previewPanel = $('.preview-panel');
+const previewNotice = $('#preview-notice');
+const previewNoticeText = $('#preview-notice-text');
+const previewNoticeClose = $('#preview-notice-close');
 
 // ---------------------------------------------------------------------------
 // Boot ticker
@@ -107,6 +114,12 @@ function logLine(text) {
 let shellProcess = null;
 let serverProcess = null;
 let webcontainerInstance = null;
+let activePort = null; // port of the most recent server the container reported
+let previewHost = null;
+
+// Identifies this Dock tab; the new-tab preview URL contains it so the
+// service worker knows which tab to ask for files.
+const hostId = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => (b % 36).toString(36)).join('');
 
 // ---------------------------------------------------------------------------
 // Boot sequence
@@ -136,6 +149,8 @@ async function boot() {
     return;
   }
 
+  registerPreviewWorker();
+
   setStep('boot', 'active');
   try {
     webcontainerInstance = await WebContainer.boot();
@@ -146,6 +161,13 @@ async function boot() {
   }
   setStep('boot', 'done');
 
+  previewHost = createPreviewHost({
+    instance: webcontainerInstance,
+    bridgeSource,
+    hostId,
+    getPort: () => activePort,
+  });
+
   setStep('mount', 'active');
   await webcontainerInstance.mount({
     'index.html': { file: { contents: DEFAULT_INDEX_HTML } },
@@ -154,6 +176,8 @@ async function boot() {
   setStep('mount', 'done');
 
   webcontainerInstance.on('server-ready', (port, url) => {
+    activePort = port;
+    hideNotice();
     setStep('serve', 'done');
     previewFrame.src = url;
     previewFrame.classList.remove('hidden');
@@ -166,6 +190,7 @@ async function boot() {
 
   webcontainerInstance.on('port', (port, type) => {
     if (type === 'close') {
+      if (port === activePort) activePort = null;
       previewDot.classList.remove('live');
     }
   });
@@ -389,6 +414,9 @@ btnStopServe.addEventListener('click', () => {
 });
 
 function resetPreview() {
+  activePort = null;
+  hideNotice();
+  previewPanel.classList.remove('expanded');
   previewFrame.src = 'about:blank';
   previewFrame.classList.add('hidden');
   previewEmpty.style.display = 'flex';
@@ -403,10 +431,67 @@ btnReloadPreview.addEventListener('click', () => {
     previewFrame.src = previewFrame.src;
   }
 });
-btnOpenPreview.addEventListener('click', () => {
-  if (previewFrame.src && previewFrame.src !== 'about:blank') {
-    window.open(previewFrame.src, '_blank');
+
+// ---------------------------------------------------------------------------
+// Open in new tab / full screen
+// ---------------------------------------------------------------------------
+
+// The container's own preview URL can't be opened in a separate tab (browsers
+// partition its storage, and StackBlitz's "connect" page only supports their
+// editor). Instead a service worker on THIS site serves the tab, fetching
+// files from this Dock tab. See src/preview-host.js.
+
+function registerPreviewWorker() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  navigator.serviceWorker
+    .register('coi-serviceworker.js', { scope: './' })
+    .catch((err) => console.warn('Preview service worker registration failed:', err));
+}
+
+function showNotice(message) {
+  previewNoticeText.textContent = message;
+  previewNotice.hidden = false;
+}
+function hideNotice() {
+  previewNotice.hidden = true;
+}
+previewNoticeClose.addEventListener('click', hideNotice);
+
+// Returns a human-readable reason the new-tab preview can't work, or null.
+function previewProblem() {
+  if (!('serviceWorker' in navigator)) {
+    return 'Opening in a new tab needs service workers, which this browser or context doesn\'t provide (file:// pages, some private modes). Serve Dock over http://localhost or HTTPS, or use the full-screen button instead.';
   }
+  if (!window.isSecureContext) {
+    return 'Opening in a new tab needs HTTPS or http://localhost. This page was opened over plain HTTP (for example a LAN address), so service workers are blocked. Use the full-screen button instead.';
+  }
+  if (!navigator.serviceWorker.controller) {
+    return 'The preview service worker isn\'t controlling this page yet. Reload the page once, start the server again, and retry.';
+  }
+  if (!activePort) {
+    return 'Nothing is being served yet. Start the server first, then open it in a new tab.';
+  }
+  return null;
+}
+
+btnOpenPreview.addEventListener('click', () => {
+  const problem = previewProblem();
+  if (problem) {
+    showNotice(problem);
+    return;
+  }
+  hideNotice();
+  const url = new URL(`preview/${hostId}/`, document.baseURI).href;
+  const tab = window.open(url, '_blank');
+  if (!tab) {
+    showNotice('Your browser blocked the new tab. Allow pop-ups for this site and try again.');
+  }
+});
+
+btnFullscreenPreview.addEventListener('click', () => {
+  const on = previewPanel.classList.toggle('expanded');
+  btnFullscreenPreview.textContent = on ? '✕' : '⤢';
+  btnFullscreenPreview.title = on ? 'Exit full screen' : 'Full screen';
 });
 
 // ---------------------------------------------------------------------------

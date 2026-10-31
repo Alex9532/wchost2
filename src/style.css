@@ -341,3 +341,28 @@ code {
 
 /* xterm fills its container */
 .terminal-body .xterm { height: 100%; }
+
+/* ---- Preview notice + full-screen mode ---- */
+
+.preview-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(231, 163, 62, 0.1);
+  border-bottom: 1px solid var(--amber-dim);
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.preview-notice[hidden] { display: none; }
+.preview-notice span { flex: 1; }
+
+.preview-panel.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg);
+  border-bottom: none;
+}
