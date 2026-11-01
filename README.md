@@ -35,17 +35,32 @@ setup is needed locally.
 
 ## Using it
 
+- **Import from GitHub** — paste `owner/repo`, a `github.com/…` link, or a
+  folder link (`github.com/owner/repo/tree/main/docs`, which imports just that
+  folder as the root). Add `#branch` to pick a branch (`owner/repo#dev`).
+  By default it empties the container first ("Replace existing files"), so you
+  start from a clean filesystem; untick it to merge into what's there.
+  - Public repos only. The file list costs one GitHub API call, and anonymous
+    API access is limited to 60 calls/hour per IP address (shared networks can
+    hit this). File contents come from `raw.githubusercontent.com` and don't
+    count against that limit.
+  - Why not download the repo as a zip? `codeload.github.com` doesn't allow
+    cross-origin reads from other sites, so a browser page can't fetch it.
+  - Git submodules and Git LFS files aren't followed (LFS files arrive as their
+    small pointer text).
 - **Upload** — drag a folder (or individual files) onto the drop zone in the
   sidebar, or use the "Upload files" / "Upload folder" buttons. Everything
   lands in the container's root, preserving the folder structure you drop in.
 - **Container FS** — the sidebar tree mirrors what's actually inside the
   container. Click the refresh icon after running shell commands that change
   files, since it doesn't auto-poll.
-- **Install & start server** — runs `npm install` then `npm run start`
-  inside the container (defined in the container's own `package.json`,
-  which defaults to serving the current directory on port 3000 via `serve`).
-  The preview pane fills in automatically once the container reports the
-  server is ready.
+- **Start server** — if the project has a `package.json` with a `start` (or
+  else `dev`) script, Dock runs `npm install` and then that script. Otherwise
+  it uses a built-in static server (`src/static-server.cjs`) that needs no
+  install and follows GitHub Pages' rules: `/dir` redirects to `/dir/` and
+  serves its `index.html`, `/page` serves `page.html`, and missing files show
+  your `404.html` if you have one. The preview pane fills in automatically once
+  the container reports the server is ready.
 - **Terminal** — a real shell (`jsh`) running inside the container. Use it
   for anything the buttons don't cover: `npm install <pkg>`, running a build
   step for a framework (e.g. `npm run build` for a Vite/React app) before

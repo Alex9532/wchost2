@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import bridgeSource from './container-bridge.cjs?raw';
 import { createPreviewHost } from './preview-host.js';
+import staticServerSource from './static-server.cjs?raw';
+import { importGitHubRepo } from './github-import.js';
 
 // ---------------------------------------------------------------------------
 // Constants / initial in-container filesystem
@@ -13,30 +15,18 @@ const DEFAULT_INDEX_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8" /><title>Your site</title></head>
   <body style="font-family: system-ui; padding: 3rem; color: #333;">
-    <h1>Upload your static site</h1>
-    <p>Replace these files (via the sidebar) with your own HTML/CSS/JS,
-       then click <strong>Install &amp; start server</strong>.</p>
+    <h1>Dock is running</h1>
+    <p>Import a GitHub repo or upload your own files from the sidebar,
+       then click <strong>Start server</strong>.</p>
   </body>
 </html>
 `;
 
-const DEFAULT_PACKAGE_JSON = JSON.stringify(
-  {
-    name: 'static-site',
-    private: true,
-    version: '0.0.0',
-    scripts: {
-      // "serve" mirrors what GitHub Pages does: it hands back whatever
-      // static files exist in the directory, as-is, with no build step.
-      start: 'serve . -l 3000',
-    },
-    devDependencies: {
-      serve: '^14.2.1',
-    },
-  },
-  null,
-  2
-);
+// Built-in static server (src/static-server.cjs). It is written into the
+// container on demand, so a plain static site needs no package.json and no
+// npm install.
+const STATIC_SERVER_FILE = 'node_modules/.dock/static-server.cjs';
+const STATIC_SERVER_PORT = 3000;
 
 const IGNORED_DIRS = new Set(['node_modules', '.git']);
 
@@ -55,6 +45,10 @@ const btnUploadFiles = $('#btn-upload-files');
 const btnUploadFolder = $('#btn-upload-folder');
 const btnRefreshTree = $('#btn-refresh-tree');
 const fileTreeEl = $('#file-tree');
+const importInput = $('#import-input');
+const btnImport = $('#btn-import');
+const importReplace = $('#import-replace');
+const importStatus = $('#import-status');
 const btnServe = $('#btn-serve');
 const btnStopServe = $('#btn-stop-serve');
 const previewFrame = $('#preview-frame');
@@ -171,7 +165,6 @@ async function boot() {
   setStep('mount', 'active');
   await webcontainerInstance.mount({
     'index.html': { file: { contents: DEFAULT_INDEX_HTML } },
-    'package.json': { file: { contents: DEFAULT_PACKAGE_JSON } },
   });
   setStep('mount', 'done');
 
@@ -277,12 +270,15 @@ async function ensureDir(path) {
   await webcontainerInstance.fs.mkdir(path, { recursive: true });
 }
 
-async function writeUploadedFile(relPath, file) {
+async function writeBytes(relPath, bytes) {
   const clean = relPath.replace(/^\/+/, '');
   const dir = clean.includes('/') ? '/' + clean.slice(0, clean.lastIndexOf('/')) : '';
   if (dir) await ensureDir(dir);
-  const buffer = new Uint8Array(await file.arrayBuffer());
-  await webcontainerInstance.fs.writeFile('/' + clean, buffer);
+  await webcontainerInstance.fs.writeFile('/' + clean, bytes);
+}
+
+async function writeUploadedFile(relPath, file) {
+  await writeBytes(relPath, new Uint8Array(await file.arrayBuffer()));
 }
 
 async function uploadEntries(entries) {
@@ -361,6 +357,68 @@ dropzone.addEventListener('drop', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Import from GitHub
+// ---------------------------------------------------------------------------
+
+async function clearFilesystem() {
+  stopServer(); // a running server would be serving files that are about to vanish
+  const fs = webcontainerInstance.fs;
+  for (const name of await fs.readdir('/')) {
+    await fs.rm('/' + name, { recursive: true, force: true });
+  }
+}
+
+function formatBytes(n) {
+  return n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+async function runImport() {
+  if (!webcontainerInstance) return;
+  btnImport.disabled = true;
+  importInput.disabled = true;
+  importStatus.classList.remove('error');
+  importStatus.textContent = 'Looking up repository…';
+
+  try {
+    const result = await importGitHubRepo({
+      input: importInput.value,
+      writeFile: writeBytes,
+      prepare: async () => {
+        if (importReplace.checked) await clearFilesystem();
+      },
+      confirmLarge: async ({ count, size }) =>
+        window.confirm(`This will download ${count} files (about ${formatBytes(size)}). Continue?`),
+      onProgress: ({ phase, done, total }) => {
+        importStatus.textContent =
+          phase === 'downloading' ? `Downloading ${done} / ${total} files…` : 'Looking up repository…';
+      },
+    });
+
+    await refreshTree();
+    const where = `${result.owner}/${result.repo}@${result.ref}${result.subdir ? '/' + result.subdir : ''}`;
+    let message = `Imported ${result.written} file${result.written === 1 ? '' : 's'} from ${where}.`;
+    if (result.failed.length) {
+      importStatus.classList.add('error');
+      message += ` ${result.failed.length} failed: ${result.failed.slice(0, 3).join(', ')}${result.failed.length > 3 ? '…' : ''}`;
+    }
+    if (result.submodules) message += ` (${result.submodules} submodule${result.submodules === 1 ? '' : 's'} skipped.)`;
+    importStatus.textContent = message;
+    logLine(message + ' Click "Start server" to preview it.');
+  } catch (err) {
+    importStatus.classList.add('error');
+    importStatus.textContent = String(err.message || err);
+  } finally {
+    btnImport.disabled = false;
+    importInput.disabled = false;
+  }
+}
+
+btnImport.addEventListener('click', runImport);
+importInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runImport();
+});
+
+// ---------------------------------------------------------------------------
 // Install & serve
 // ---------------------------------------------------------------------------
 
@@ -371,29 +429,53 @@ async function runAndPipe(command, args) {
   return proc;
 }
 
+async function readPackageJson() {
+  try {
+    return JSON.parse(await webcontainerInstance.fs.readFile('/package.json', 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+// Projects with their own "start" (or "dev") script run that, after an
+// `npm install`. Everything else is served by the built-in static server,
+// which needs no install and follows GitHub Pages' conventions.
 btnServe.addEventListener('click', async () => {
   btnServe.disabled = true;
-  setStep('install', 'active');
   try {
-    const install = await runAndPipe('npm', ['install']);
-    const installCode = await install.exit;
-    if (installCode !== 0) {
-      setStep('install', 'error');
-      logLine(`npm install exited with code ${installCode}`);
-      btnServe.disabled = false;
-      return;
-    }
-    setStep('install', 'done');
-    setStep('serve', 'active');
+    const pkg = await readPackageJson();
+    const script = pkg?.scripts?.start ? 'start' : pkg?.scripts?.dev ? 'dev' : null;
+    let proc;
 
-    serverProcess = await runAndPipe('npm', ['run', 'start']);
-    pidBadge.textContent = 'server running';
-    serverProcess.exit.then((code) => {
-      pidBadge.textContent = 'no process';
-      if (code !== 0) {
-        logLine(`Server process exited with code ${code}`);
+    if (script) {
+      setStep('install', 'active');
+      const install = await runAndPipe('npm', ['install']);
+      const installCode = await install.exit;
+      if (installCode !== 0) {
+        setStep('install', 'error');
+        logLine(`npm install exited with code ${installCode}`);
+        btnServe.disabled = false;
+        return;
       }
+      setStep('install', 'done');
+      setStep('serve', 'active');
+      proc = await runAndPipe('npm', ['run', script]);
+    } else {
+      setStep('install', 'done'); // nothing to install
+      setStep('serve', 'active');
+      await webcontainerInstance.fs.mkdir('/node_modules/.dock', { recursive: true });
+      await webcontainerInstance.fs.writeFile(`/${STATIC_SERVER_FILE}`, staticServerSource);
+      proc = await runAndPipe('node', [STATIC_SERVER_FILE, String(STATIC_SERVER_PORT)]);
+    }
+
+    serverProcess = proc;
+    pidBadge.textContent = 'server running';
+    proc.exit.then((code) => {
+      if (serverProcess !== proc) return; // already stopped or replaced
+      serverProcess = null;
+      if (code !== 0) logLine(`Server process exited with code ${code}`);
       resetPreview();
+      btnServe.disabled = false;
     });
   } catch (err) {
     setStep('serve', 'error');
@@ -402,7 +484,7 @@ btnServe.addEventListener('click', async () => {
   }
 });
 
-btnStopServe.addEventListener('click', () => {
+function stopServer() {
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
@@ -411,7 +493,9 @@ btnStopServe.addEventListener('click', () => {
   btnServe.disabled = false;
   setStep('serve', null);
   setStep('install', null);
-});
+}
+
+btnStopServe.addEventListener('click', stopServer);
 
 function resetPreview() {
   activePort = null;

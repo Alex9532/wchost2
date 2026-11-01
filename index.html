@@ -40,6 +40,17 @@
     <div class="workspace">
 
       <aside class="sidebar">
+        <section class="panel import-panel">
+          <h2>Import from GitHub</h2>
+          <p class="hint">Paste a public repo or folder link, like <code>owner/repo</code> or <code>github.com/owner/repo/tree/main/docs</code>.</p>
+          <div class="import-row">
+            <input type="text" id="import-input" class="text-input" placeholder="owner/repo" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <button class="btn btn-import" id="btn-import">Import</button>
+          </div>
+          <label class="check"><input type="checkbox" id="import-replace" checked /> Replace existing files</label>
+          <p class="import-status" id="import-status" role="status"></p>
+        </section>
+
         <section class="panel upload-panel">
           <h2>Files</h2>
           <p class="hint">Drop a folder here, or use the buttons below. Files land in the container's <code>/</code> directory.</p>
@@ -67,8 +78,8 @@
 
         <section class="panel actions-panel">
           <h2>Serve</h2>
-          <p class="hint">Runs <code>npm install</code> then starts a static server over whatever is uploaded, the same way GitHub Pages serves a repo's files as-is.</p>
-          <button class="btn btn-primary" id="btn-serve">Install &amp; start server</button>
+          <p class="hint">Serves the files the way GitHub Pages would — no install needed. If the project has its own <code>start</code> or <code>dev</code> script, that runs instead (after <code>npm install</code>).</p>
+          <button class="btn btn-primary" id="btn-serve">Start server</button>
           <button class="btn" id="btn-stop-serve" disabled>Stop server</button>
         </section>
       </aside>
@@ -92,7 +103,7 @@
             <iframe id="preview-frame" title="Site preview"></iframe>
             <div class="preview-empty" id="preview-empty">
               <p>Nothing served yet.</p>
-              <p class="hint">Upload files, then click <strong>Install &amp; start server</strong> — or run your own command below.</p>
+              <p class="hint">Import a repo or upload files, then click <strong>Start server</strong> — or run your own command below.</p>
             </div>
           </div>
         </section>
